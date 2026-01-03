@@ -1,0 +1,221 @@
+/*
+ * Copyright (C) 2026 Anwoy Kumar Mohanty
+ * * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ *
+ * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
+ * please contact [anwoy.rkl@gmail.com].
+ */
+
+#ifndef RAY_CUH
+#define RAY_CUH
+
+#include <point.cuh>
+#include <constants.cuh>
+#include <utilities.cuh>
+
+using namespace std;
+
+__device__ __host__ inline Point derivative(const Point& state) {
+    const double y1 = state[0], y2 = state[1];
+    
+    return Point {
+        y2,
+        SCHWARZSCHILD_RADIUS*3/2*y1*y1 - y1,
+        -1
+    };
+}
+
+struct InitialConditions {
+    const Point x, y, z, initial_state;
+
+    __device__ __host__ inline InitialConditions(const Point& x, const Point& y, const Point& z, const Point& initial_state):
+    x(x), y(y), z(z), initial_state(initial_state) {}
+};
+
+__device__ __host__ inline InitialConditions initial_conditions_calc(const Point& origin, const Point& direction) {
+    const Point x = normalize(direction);
+    const Point z = normalize(cross(direction, origin));
+    const Point y = cross(z, x);
+    const double phi_0 = acos(dot(origin, x) / origin.length());
+    const double r_0 = origin.length();
+    const double u_0 = 1 / r_0;
+    const double p = dot(x, direction), q = dot(y, direction), r = dot(z, direction);
+    const double c_phi_0 = cos(phi_0), s_phi_0 = sin(phi_0);
+    const double r_prime = p*c_phi_0 + q*s_phi_0;
+    const double phi_prime = u_0*(-p*s_phi_0 + q*c_phi_0);
+    const double L_0 = r_0*r_0*phi_prime;
+    const double z_0 = 1 - SCHWARZSCHILD_RADIUS / r_0;
+    const double t_prime = sqrt(fmax(0., 1 / SPEED_OF_LIGHT / SPEED_OF_LIGHT / z_0 * (
+        r_prime*r_prime / z_0 + r_0*r_0*phi_prime*phi_prime
+    )));
+    const double E_0 = SPEED_OF_LIGHT*SPEED_OF_LIGHT*z_0*t_prime;
+    const double b_0 = SPEED_OF_LIGHT * L_0 / E_0;
+    
+    const Point initial_state {
+        u_0,
+        sqrt(fmax(0., 1 / b_0 / b_0 - u_0*u_0*z_0)),
+        phi_0
+    };
+    return InitialConditions(x, y, z, initial_state);
+}
+
+struct Position {
+    double r;
+    Point position;
+
+    __device__ __host__ inline Position(const double r, const Point& position):
+    r(r), position(position) {}
+};
+
+__device__ __host__ inline Position get_position(const Point& state, const InitialConditions& it) {
+    const double r = 1 / state[0];
+    const double angle = state[2];
+    const Point position = r*cos(angle)*it.x + r*sin(angle)*it.y;
+    return Position(r, position);
+}
+
+__device__ __host__ inline Point get_hitpoint_on_universe_boundary(const Point& p, const Point& next_p) {
+    const Point &p1 = p, &p2 = next_p;
+    const Point d = p2 - p1;
+    const double d_l_sq = d.length_squared();
+    const double b = dot(p1, d) / d_l_sq;
+    const double c = (p1.length_squared() - UNIVERSE_RADIUS*UNIVERSE_RADIUS) / d_l_sq;
+    const double disc = b*b - c;
+    const double t = sqrt(fmax(0., disc)) - b;
+    return p1 + t*d;
+}
+
+struct LatLong {
+    double latitude, longitude;
+    __device__ __host__ inline LatLong(double latitude, double longitude):
+    latitude(latitude), longitude(longitude) {}
+};
+
+__device__ __host__ inline LatLong get_lat_long_from_xyz(const Point& p) {
+    const double r = p.length();
+    const double latitude = asin(p.get_z() / r);
+    const double longitude = atan2(p.get_y(), p.get_x());
+    return LatLong(latitude, longitude);
+}
+
+__device__ __host__ inline Point next_state_calc(const Point& state, const double step_size) {
+    const Point k1 = derivative(state);
+    const Point k2 = derivative(state + step_size / 2 * k1);
+    const Point k3 = derivative(state + step_size / 2 * k2);
+    const Point k4 = derivative(state + step_size * k3);
+    return state + step_size / 6 * (k1 + 2*k2 + 2*k3 + k4);
+}
+
+struct DiskInfo {
+    bool condition;
+    double thickness, l;
+};
+
+__device__ __host__ inline DiskInfo check_inside_disk(const Point& p) {
+    DiskInfo ans;
+    const double x = p.get_x(), y = p.get_y(), z = p.get_z();
+    const double l = sqrt(x*x + z*z);
+    ans.l = l;
+    if (ACCRETION_DISK_INNER_RADIUS < l && l < ACCRETION_DISK_OUTER_RADIUS) {
+        const double thickness = linear_interpolation(l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, ACCRETION_DISK_INNER_THICKNESS, ACCRETION_DISK_OUTER_THICKNESS);
+        ans.thickness = thickness;
+        ans.condition = (-thickness / 2 < y && y < thickness / 2);
+        return ans;
+    }
+    ans.condition = false;
+    return ans;
+}
+
+__device__ __host__ inline double vertical_dependance(double y, double thickness) {
+    return exp(-y*y/thickness/thickness/2);
+}
+
+__device__ __host__ inline double radial_dependance(double l) {
+    return 1./l/sqrt(l)*(1 - sqrt(ACCRETION_DISK_INNER_RADIUS / l))*linear_interpolation(l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, 1, 0);
+}
+
+__device__ __host__ inline Point ray_trajectory(
+    const Point& origin,
+    const Point& direction,
+    Point* star_map,
+    const int sm_image_width,
+    const int sm_image_height,
+    double* disk_map,
+    const int disk_map_x,
+    const int disk_map_y,
+    const int disk_map_z,
+    const double time,
+    const bool create_disk,
+    const double probty_constant,
+    Point* trajectory
+) {
+    const InitialConditions initial_conditions = initial_conditions_calc(origin, direction);
+    double step_size = 1./20;
+    const double march_step_size = 1e-2;
+    Point state = initial_conditions.initial_state;
+    Position position = get_position(state, initial_conditions);
+    Point color(0, 0, 0);
+    Point transmission(1,1,1);
+    for (int i = 0; i < 60000; ++i) {
+#ifndef __CUDA_ARCH__
+        trajectory[i] = position.position;
+#endif
+        step_size = min(max(1e-3/.2*fabs(state[2] - pi), 1e-3), 1./20);
+        const Point next_state = next_state_calc(state, step_size);
+        const Position next_position = get_position(next_state, initial_conditions);
+        int num_steps = 1;
+        const double min_length = fmin(next_position.position.length(), position.position.length());
+        if (check_inside_disk(position.position).condition || check_inside_disk(next_position.position).condition)
+            num_steps = clamp((next_position.position - position.position).length() / march_step_size, 1, 50);
+        const Point increment = (next_position.position - position.position) / num_steps;
+        const double increment_length = increment.length();
+        Point _p = position.position;
+        for (int j = 1; j < num_steps + 1; ++j) {
+            const Point _next_p = position.position + j*increment;
+            if (_next_p.length() < SCHWARZSCHILD_RADIUS)
+                return color + BACKGROUND_COLOR*transmission;
+            if (_p.length() < UNIVERSE_RADIUS && _next_p.length() > UNIVERSE_RADIUS) {
+                const Point pos_on_universe = get_hitpoint_on_universe_boundary(_p, _next_p);
+                const LatLong latlong = get_lat_long_from_xyz(pos_on_universe);
+                const int i = (latlong.longitude + pi) / 2 / pi * sm_image_width;
+                const int j = (latlong.latitude + pi / 2) / pi * sm_image_height;
+                const int r = min(j * sm_image_width + i, sm_image_width * sm_image_height);
+                return color + star_map[r]*transmission;
+            }
+            if (create_disk) {
+                const DiskInfo disk_info = check_inside_disk(_next_p);
+                if (disk_info.condition) {
+                    const double angle = atan2(_next_p.get_z(), _next_p.get_x());
+                    const double omega = OMEGA_CONSTANT / sqrt(disk_info.l*disk_info.l*disk_info.l);
+                    const int _i = fmod(angle + time * omega + pi, 2*pi) / 2 / pi * disk_map_x;
+                    const int _j = linear_interpolation(disk_info.l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, 0, disk_map_y);
+                    const int _k = linear_interpolation(_next_p.get_y(), -disk_info.thickness/2, disk_info.thickness/2, 0, disk_map_z);
+                    const int r = min(_k + disk_map_z*_j + disk_map_z*disk_map_y*_i, disk_map_x*disk_map_y*disk_map_z - 1);
+
+                    const double density = disk_map[r]*vertical_dependance(_next_p.get_y(), disk_info.thickness/10)*radial_dependance(disk_info.l)*5000*probty_constant;
+                    const double luminosity = 1./disk_info.l*5;
+                    const Point disk_color = linear_interpolation(disk_info.l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, INNER_COLOR, OUTER_COLOR);
+                    color += transmission * density * luminosity * disk_color * increment_length;
+                    transmission *= exp(-density * increment_length); // absorption
+                }
+            }
+            _p = _next_p;
+        }
+        state = move(next_state);
+        position = move(next_position);
+    }
+    return color + BACKGROUND_COLOR*transmission;
+}
+
+#endif

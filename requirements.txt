@@ -1,0 +1,17 @@
+contourpy==1.3.3
+cycler==0.12.1
+fonttools==4.61.1
+imageio==2.37.2
+imath==0.0.2
+kiwisolver==1.4.9
+matplotlib==3.10.8
+numpy==2.4.2
+OpenEXR==3.4.4
+openexr_numpy==0.0.8
+packaging>=24.0
+pandas==3.0.0
+perlin-numpy==0.0.1
+pillow==12.1.0
+pyparsing==3.3.2
+python-dateutil==2.9.0
+six==1.17.0
