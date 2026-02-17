@@ -12,9 +12,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
- * please contact [anwoy.rkl@gmail.com].
  */
 
 #ifndef CONSTANTS_CUH
@@ -41,6 +38,10 @@ __managed__ double ACCRETION_DISK_OUTER_RADIUS;
 __managed__ double ACCRETION_DISK_INNER_THICKNESS;
 __managed__ double ACCRETION_DISK_OUTER_THICKNESS;
 
+/**
+ * sets various constants associated with the black hole
+ * @param mass mass of the black hole (usually set to 1)
+ */
 inline __device__ __host__ void set_black_hole_constants(double mass) {
     BLACK_HOLE_MASS = mass;
     SCHWARZSCHILD_RADIUS = 2*GRAVITATIONAL_CONSTANT*BLACK_HOLE_MASS/SPEED_OF_LIGHT/SPEED_OF_LIGHT;

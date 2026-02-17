@@ -12,9 +12,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
- * please contact [anwoy.rkl@gmail.com].
  */
 
 #ifndef CAMERA_CUH
@@ -31,6 +28,28 @@
 
 using namespace std;
 
+/**
+ * kernel function which runs ray tracing for individual pixels
+ * @param  image pointer to the image memory
+ * @param image_width image width
+ * @param image_height image height
+ * @param pixel00_position position of the first pixel in space
+ * @param delta_w vector pointing from pixel [i, j]'s position to [i, j + 1]'s position
+ * @param delta_h vector pointing from pixel [i, j]'s position to [i + 1, j]'s position
+ * @param camera_position position of the camera
+ * @param star_map star map in plate carrée format
+ * @param sm_image_width width of the star map
+ * @param sm_image_height height of the star map
+ * @param disk_map Perlin noise map for the accretion disk
+ * @param disk_map_x width of the disk map
+ * @param disk_map_y height of the disk map
+ * @param disk_map_z thickness of the disk map
+ * @param time used rotate accretion disk
+ * @param d_states states used to generate random numbers
+ * @param num_samples_per_pixel number of rays generated per pixel for mote carlo averaging
+ * @param create_disk set to false to not render accretion disk
+ * @param disk_density_modulator used to modulate density
+ */
 __global__ void kernel(
     Point* image,
     const int image_width,
@@ -50,7 +69,7 @@ __global__ void kernel(
     curandState* d_states,
     const int num_samples_per_pixel,
     const bool create_disk,
-    const double probty_constant
+    const double disk_density_modulator
 ) {
     const int r = blockIdx.x * blockDim.x + threadIdx.x;
     const int total_pixels = image_width * image_height;
@@ -64,11 +83,14 @@ __global__ void kernel(
         if (_ > 0)
             px += delta_w*get_random_double(d_states, r, -0.5, 0.5) + delta_h*get_random_double(d_states, r, -0.5, 0.5);
         const Point ray_direction = px - camera_position;
-        s += ray_trajectory(px, ray_direction, star_map, sm_image_width, sm_image_height, disk_map, disk_map_x, disk_map_y, disk_map_z, time, create_disk, probty_constant, nullptr);
+        s += ray_trajectory(px, ray_direction, star_map, sm_image_width, sm_image_height, disk_map, disk_map_x, disk_map_y, disk_map_z, time, create_disk, disk_density_modulator, nullptr);
     }
     image[r] = s / num_samples_per_pixel;
 }
 
+/**
+ * a class to handle images
+ */
 struct Image {
     vector<Point> image;
     unsigned int image_width, image_height;
@@ -107,11 +129,21 @@ struct Image {
     }
 };
 
+/**
+ * a struct to save Perlin noise map
+ * `x`, `y`, `z` represent the width, height, and thickness of the map
+ * `data` saves the noise values
+ */
 struct Disk3D {
     int x, y, z;
     vector<double> data;
 };
 
+/**
+ * reads the noise map from file
+ * @param filepath path to file
+ * @return `Disk3D` object
+ */
 Disk3D read_disk3d_from_file(const string& filepath) {
     ifstream fin(filepath);
     Disk3D v;
@@ -123,6 +155,10 @@ Disk3D read_disk3d_from_file(const string& filepath) {
     return v;
 }
 
+/**
+ * a struct to hold various variables associated with a rendered frame.
+ * It's changed from frame to frame to render a movie
+ */
 struct CameraSettings {
     Point camera_position = Point(0, UNIVERSE_RADIUS/2 * sin(3*pi/180), UNIVERSE_RADIUS/2 * cos(3*pi/180));
     Point look_to = Point(0, 0, 0);
@@ -133,12 +169,15 @@ struct CameraSettings {
     int num_samples_per_pixel = 1;
     string image_filepath = "../data/example.png";
     bool create_disk = true;
-    double probty_constant = 1;
+    double disk_density_modulator = 1;
     double black_hole_mass = 1;
 };
 
+/**
+ * Camera class, holds attributes like camera position, aspect ratio etc.
+ */
 class Camera {
-    // set
+    // independent variables
     const double aspect_ratio = 16./9;
     const int image_height = 200;
     Point camera_position;
@@ -151,11 +190,16 @@ class Camera {
 
     public:
     Camera() {}
+
+    /**
+     * @param aspect_ratio aspect ratio of the rendered frames
+     * @param image_height height of the rendered frames
+     */
     Camera(double aspect_ratio, int image_height):
     aspect_ratio(aspect_ratio), image_height(image_height) {}
     private:
     
-    // calculate
+    // dependent variables
     const int image_width = aspect_ratio*image_height;
     double viewport_height;
     double viewport_width;
@@ -169,6 +213,7 @@ class Camera {
     Point top_left_position;
     Point pixel00_position;
 
+    // initialize dependent variables based on values of independent variables
     inline void initialize() {
         viewport_height = 2 * tan(view_angle / 2) * focal_length;
         viewport_width = viewport_height * (double) image_width / image_height;
@@ -183,6 +228,8 @@ class Camera {
         pixel00_position = top_left_position + (delta_w + delta_h) / 2;
     }
 
+    // set independent variables using a CameraSettings object
+    // then initialize dependent variables based on values of independent variables
     inline void initialize(const CameraSettings& camset) {
         camera_position = camset.camera_position;
         look_to = camset.look_to;
@@ -195,17 +242,14 @@ class Camera {
         initialize();
     }
 
-    vector<CameraSettings> drop_for_existing_filename(const vector<CameraSettings>& camset) {
-        vector<CameraSettings> ans;
-        for (const auto& cs: camset) {
-            if (!filePresent(cs.image_filepath))
-                ans.push_back(cs);
-        }
-        return ans;
-    }
-
     public:
 
+    /**
+     * function to render frames
+     * @param starmap star map in plate carrée format
+     * @param diskmap Perlin noise map for the accretion disk
+     * @param camset vector of `CameraSettings` objects, number of frames rendered is equal to the length of this input
+     */
     inline void render(const Image& starmap, const Disk3D& diskmap, vector<CameraSettings> camset) {
         initialize();
         const int total_pixels = image_width * image_height;
@@ -250,7 +294,7 @@ class Camera {
                 d_states,
                 num_samples_per_pixel,
                 cs.create_disk,
-                cs.probty_constant
+                cs.disk_density_modulator
             );
             cudaDeviceSynchronize();
             cudaMemcpy(output_image.image.data(), image_d, total_pixels * sizeof(Point), cudaMemcpyDeviceToHost);

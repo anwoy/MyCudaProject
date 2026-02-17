@@ -12,9 +12,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
- * please contact [anwoy.rkl@gmail.com].
  */
 
 #ifndef RAY_CUH
@@ -26,6 +23,11 @@
 
 using namespace std;
 
+/**
+ * A state is represented as a 3D vector [u, du/dphi, phi], this function calculates the derivative as a function of the state
+ * @param state input state
+ * @return the derivative given the input
+ */
 __device__ __host__ inline Point derivative(const Point& state) {
     const double y1 = state[0], y2 = state[1];
     
@@ -36,6 +38,9 @@ __device__ __host__ inline Point derivative(const Point& state) {
     };
 }
 
+/**
+ * A struct to save initial conditions, and the x, y, and z directions of the frame in which the path equation is solved
+ */
 struct InitialConditions {
     const Point x, y, z, initial_state;
 
@@ -43,6 +48,12 @@ struct InitialConditions {
     x(x), y(y), z(z), initial_state(initial_state) {}
 };
 
+/**
+ * Returns an InitialConditions object given the initial point of origin and direction of propagation of a photon.
+ * @param origin position of the photon
+ * @param direction direction of propagation of the photon
+ * @return Initial state and transformed frame bundled in an `InitialConditions` object
+ */
 __device__ __host__ inline InitialConditions initial_conditions_calc(const Point& origin, const Point& direction) {
     const Point x = normalize(direction);
     const Point z = normalize(cross(direction, origin));
@@ -62,6 +73,9 @@ __device__ __host__ inline InitialConditions initial_conditions_calc(const Point
     return InitialConditions(x, y, z, initial_state);
 }
 
+/**
+ * saves a position in 3D space as well as the distance from origin of said point
+ */
 struct Position {
     double r;
     Point position;
@@ -70,6 +84,11 @@ struct Position {
     r(r), position(position) {}
 };
 
+/**
+ * derives position from the state, using the x, y, z directions of the frame in which the path equation is solved
+ * @param state a 3D vector representing [u, du/dphi, phi]
+ * @param it an `InitialConditions` object containing the transformed frame
+ */
 __device__ __host__ inline Position get_position(const Point& state, const InitialConditions& it) {
     const double r = 1 / state[0];
     const double angle = state[2];
@@ -77,6 +96,13 @@ __device__ __host__ inline Position get_position(const Point& state, const Initi
     return Position(r, position);
 }
 
+/**
+ * assuming position `p` is within the universe boundary, and position `next_p` is outside, this function returns the point on the sphere representing the universe boundary
+ * where the photon passes.
+ * @param p point inside universe boundary
+ * @param next_p point outside universe boundary
+ * @return point on the universe boundary where ray hits
+ */
 __device__ __host__ inline Point get_hitpoint_on_universe_boundary(const Point& p, const Point& next_p) {
     const Point &p1 = p, &p2 = next_p;
     const Point d = p2 - p1;
@@ -88,12 +114,20 @@ __device__ __host__ inline Point get_hitpoint_on_universe_boundary(const Point& 
     return p1 + t*d;
 }
 
+/**
+ * convert hit point on universe boundary to latitude and longitude and save in this struct
+ */
 struct LatLong {
     double latitude, longitude;
     __device__ __host__ inline LatLong(double latitude, double longitude):
     latitude(latitude), longitude(longitude) {}
 };
 
+/**
+ * convert hit point on universe boundary to latitude and longitude
+ * @param p point on the universe boundary where ray hits
+ * @return latitude and longitude bundled in a `LatLong` object
+ */
 __device__ __host__ inline LatLong get_lat_long_from_xyz(const Point& p) {
     const double r = p.length();
     const double latitude = asin(p.get_z() / r);
@@ -101,6 +135,12 @@ __device__ __host__ inline LatLong get_lat_long_from_xyz(const Point& p) {
     return LatLong(latitude, longitude);
 }
 
+/**
+ * RK4 step to compute next state from present state
+ * @param state a 3D vector representing [u, du/dphi, phi]
+ * @param step_size step size used in the RK4 iterations
+ * @return next state
+ */
 __device__ __host__ inline Point next_state_calc(const Point& state, const double step_size) {
     const Point k1 = derivative(state);
     const Point k2 = derivative(state + step_size / 2 * k1);
@@ -109,11 +149,19 @@ __device__ __host__ inline Point next_state_calc(const Point& state, const doubl
     return state + step_size / 6 * (k1 + 2*k2 + 2*k3 + k4);
 }
 
+/**
+ * This struct is returned from the function which checks if a photon is within the accretion disk
+ */
 struct DiskInfo {
     bool condition;
     double thickness, l;
 };
 
+/**
+ * checks if a photon at position `p` is within the accretion disk
+ * @param p 3D vector representing a point in space
+ * @return metadata bundled in a `DiskInfo` object
+ */
 __device__ __host__ inline DiskInfo check_inside_disk(const Point& p) {
     DiskInfo ans;
     const double x = p.get_x(), y = p.get_y(), z = p.get_z();
@@ -129,14 +177,42 @@ __device__ __host__ inline DiskInfo check_inside_disk(const Point& p) {
     return ans;
 }
 
+/**
+ * function describing density of accretion disk
+ * @param y distance from equitorial plane
+ * @param thickness thickness of the disk at that location
+ * @return density
+ */
 __device__ __host__ inline double vertical_dependance(double y, double thickness) {
     return exp(-y*y/thickness/thickness/2);
 }
 
+/**
+ * function describing density of accretion disk
+ * @param l distance of the point from the origin on the equitorial plane
+ * @return density
+ */
 __device__ __host__ inline double radial_dependance(double l) {
     return 1./l/sqrt(l)*(1 - sqrt(ACCRETION_DISK_INNER_RADIUS / l))*linear_interpolation(l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, 1, 0);
 }
 
+/**
+ * Computes ray trajectory
+ * @param origin start poition of the photon
+ * @param direction direction of the photon
+ * @param star_map star map in plate carrée format
+ * @param sm_image_width width of the star map
+ * @param sm_image_height height of the star map
+ * @param disk_map Perlin noise map for the accretion disk
+ * @param disk_map_x width of the disk map
+ * @param disk_map_y height of the disk map
+ * @param disk_map_z thickness of the disk map
+ * @param time used rotate accretion disk
+ * @param create_disk set to false to not render accretion disk
+ * @param disk_density_modulator used to modulate density
+ * @param trajectory save trajectory for debugging
+ * @return color to ascribe to the pixel from where ray originated
+ */
 __device__ __host__ inline Point ray_trajectory(
     const Point& origin,
     const Point& direction,
@@ -149,7 +225,7 @@ __device__ __host__ inline Point ray_trajectory(
     const int disk_map_z,
     const double time,
     const bool create_disk,
-    const double probty_constant,
+    const double disk_density_modulator,
     Point* trajectory
 ) {
     const InitialConditions initial_conditions = initial_conditions_calc(origin, direction);
@@ -195,7 +271,7 @@ __device__ __host__ inline Point ray_trajectory(
                     const int _k = linear_interpolation(_next_p.get_y(), -disk_info.thickness/2, disk_info.thickness/2, 0, disk_map_z);
                     const int r = min(_k + disk_map_z*_j + disk_map_z*disk_map_y*_i, disk_map_x*disk_map_y*disk_map_z - 1);
 
-                    const double density = disk_map[r]*vertical_dependance(_next_p.get_y(), disk_info.thickness/10)*radial_dependance(disk_info.l)*5000*probty_constant;
+                    const double density = disk_map[r]*vertical_dependance(_next_p.get_y(), disk_info.thickness/10)*radial_dependance(disk_info.l)*5000*disk_density_modulator;
                     const double luminosity = 1./disk_info.l*5;
                     const Point disk_color = linear_interpolation(disk_info.l, ACCRETION_DISK_INNER_RADIUS, ACCRETION_DISK_OUTER_RADIUS, INNER_COLOR, OUTER_COLOR);
                     color += transmission * density * luminosity * disk_color * increment_length;

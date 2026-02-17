@@ -12,19 +12,27 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
- * please contact [anwoy.rkl@gmail.com].
  */
 
 #include <iostream>
 
 #include <camera.cuh>
-#include <tests.cuh>
+#include <trajectorygen.cuh>
 
 using namespace std;
 
-vector<CameraSettings> main_aux01(const int num_frames, const int num_samples_per_pixel) {
+/**
+ * functions clip_gen_01 through clip_gen_07 generate separate
+ * movie clips and save the frames as png images
+ */
+
+ /**
+  * generates frames of a movie clip as png images. Same format for other clip_gen functions as well
+  * @param num_frames number of frames to generate
+  * @param num_samples_per_pixel number of monte carlo samples to generate per pixel for anti aliasing
+  * @return vector of `CameraSettings` objects
+  */
+vector<CameraSettings> clip_gen_01(const int num_frames, const int num_samples_per_pixel) {
     const Point up0(0.2, 1, 0), up1(-0.2, 1, 0);
     const double latitude0 = pi/8, latitude1 = -pi/8;
     const double longitude0 = pi + pi/2, longitude1 = pi/2;
@@ -51,7 +59,7 @@ vector<CameraSettings> main_aux01(const int num_frames, const int num_samples_pe
     return all_cs;
 }
 
-vector<CameraSettings> main_aux02(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_02(const int num_frames, const int num_samples_per_pixel) {
     const double l = SCHWARZSCHILD_RADIUS*8;
     const double ang = 6; // degrees
     const Point cp0(0, l*sin(ang*pi/180), l*cos(ang*pi/180)), cp1(0, -l*sin(ang*pi/180), l*cos(ang*pi/180));
@@ -62,7 +70,7 @@ vector<CameraSettings> main_aux02(const int num_frames, const int num_samples_pe
     cs.view_angle = 2*atan(SCHWARZSCHILD_RADIUS*10 / 2 / cs.camera_position.length())*2 / 3;
     vector<CameraSettings> all_cs;
     for (int i = 0; i < num_frames; ++i) {
-        cs.camera_position = cp0 + i*(cp1 - cp0) / num_frames;
+        cs.camera_position = linear_interpolation(i, 0, num_frames, cp0, cp1);
         cs.time = linear_interpolation(i, 0, num_frames, 0, 1);
         cs.image_filepath = "../data/clip02_" + to_string(i) + ".png";
         all_cs.push_back(cs);
@@ -70,7 +78,7 @@ vector<CameraSettings> main_aux02(const int num_frames, const int num_samples_pe
     return all_cs;
 }
 
-vector<CameraSettings> main_aux03(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_03(const int num_frames, const int num_samples_per_pixel) {
     const Point cp0(
         ACCRETION_DISK_INNER_RADIUS,
         -ACCRETION_DISK_INNER_THICKNESS*2,
@@ -87,7 +95,7 @@ vector<CameraSettings> main_aux03(const int num_frames, const int num_samples_pe
     cs.look_to = Point(2*ACCRETION_DISK_INNER_RADIUS, 0, 0);
     vector<CameraSettings> all_cs;
     for (int i = 0; i < num_frames; ++i) {
-        cs.camera_position = cp0 + i*(cp1 - cp0) / num_frames;
+        cs.camera_position = linear_interpolation(i, 0, num_frames, cp0, cp1);
         cs.time = linear_interpolation(i, 0, num_frames, 0, 1);
         cs.image_filepath = "../data/clip03_" + to_string(i) + ".png";
         all_cs.push_back(cs);
@@ -95,16 +103,14 @@ vector<CameraSettings> main_aux03(const int num_frames, const int num_samples_pe
     return all_cs;
 }
 
-vector<CameraSettings> main_aux04(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_04(const int num_frames, const int num_samples_per_pixel) {
     const double latitude0 = pi/8, latitude1 = pi/16;
     const double longitude0 = pi * 0.9, longitude1 = pi * 0.7;
-    // const double l0 = 30*SCHWARZSCHILD_RADIUS, l1 = 20*SCHWARZSCHILD_RADIUS;
     const double l = 25*SCHWARZSCHILD_RADIUS;
 
     CameraSettings cs;
     cs.num_samples_per_pixel = num_samples_per_pixel;
     cs.view_angle = 2*atan(SCHWARZSCHILD_RADIUS*10 / 2 / l)*2;
-    // cs.universe_up = Point(0.2, 1, 0);
     vector<CameraSettings> all_cs;
     for (int i = 0; i < num_frames; ++i) {
         const double latitude = linear_interpolation(i, 0, num_frames, latitude0, latitude1);
@@ -115,24 +121,22 @@ vector<CameraSettings> main_aux04(const int num_frames, const int num_samples_pe
             l * cos(latitude) * cos(longitiude)
         );
         cs.time = linear_interpolation(i, 0, num_frames, 0, 1);
-        cs.probty_constant = linear_interpolation(i, 0, num_frames, 0, 1);
+        cs.disk_density_modulator = linear_interpolation(i, 0, num_frames, 0, 1);
         cs.image_filepath = "../data/clip04_" + to_string(i) + ".png";
         all_cs.push_back(cs);
     }
     return all_cs;
 }
 
-vector<CameraSettings> main_aux05(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_05(const int num_frames, const int num_samples_per_pixel) {
     const double latitude0 = pi/8, latitude1 = pi/16;
     const double longitude0 = pi, longitude1 = pi * 0.8;
-    // const double l0 = 30*SCHWARZSCHILD_RADIUS, l1 = 20*SCHWARZSCHILD_RADIUS;
     const double l = 25*SCHWARZSCHILD_RADIUS;
 
     CameraSettings cs;
     cs.create_disk = false;
     cs.num_samples_per_pixel = num_samples_per_pixel;
     cs.view_angle = 2*atan(SCHWARZSCHILD_RADIUS*7 / 2 / l)*2;
-    // cs.universe_up = Point(0.2, 1, 0);
     vector<CameraSettings> all_cs;
     for (int i = 0; i < num_frames; ++i) {
         const double latitude = linear_interpolation(i, 0, num_frames, latitude0, latitude1);
@@ -143,7 +147,6 @@ vector<CameraSettings> main_aux05(const int num_frames, const int num_samples_pe
             l * cos(latitude) * cos(longitiude)
         );
         cs.time = linear_interpolation(i, 0, num_frames, 0, 1);
-        cs.probty_constant = linear_interpolation(i, 0, num_frames, 0, 1);
         cs.black_hole_mass = smooth_step(i, 0, num_frames, 0, 1, 10);
         cs.image_filepath = "../data/clip05_" + to_string(i) + ".png";
         all_cs.push_back(cs);
@@ -151,7 +154,7 @@ vector<CameraSettings> main_aux05(const int num_frames, const int num_samples_pe
     return all_cs;
 }
 
-vector<CameraSettings> main_aux06(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_06(const int num_frames, const int num_samples_per_pixel) {
     const Point cp0(
         ACCRETION_DISK_OUTER_RADIUS,
         ACCRETION_DISK_OUTER_RADIUS,
@@ -183,10 +186,10 @@ vector<CameraSettings> main_aux06(const int num_frames, const int num_samples_pe
     return all_cs;
 }
 
-vector<CameraSettings> main_aux07(const int num_frames, const int num_samples_per_pixel) {
+vector<CameraSettings> clip_gen_07(const int num_frames, const int num_samples_per_pixel) {
     const double l = 25*SCHWARZSCHILD_RADIUS;
 
-    const double latitude0 = 0, latitude1 = 0;
+    const double latitude = 0;
     const double longitude0 = 0, longitude1 = pi;
     CameraSettings cs;
     cs.create_disk = false;
@@ -195,7 +198,6 @@ vector<CameraSettings> main_aux07(const int num_frames, const int num_samples_pe
     cs.view_angle = 2*atan(SCHWARZSCHILD_RADIUS*7 / 2 / l)*2;
     vector<CameraSettings> all_cs;
     for (int i = 0; i < num_frames; ++i) {
-        const double latitude = linear_interpolation(i, 0, num_frames, latitude0, latitude1);
         const double longitiude = linear_interpolation(i, 0, num_frames, longitude0, longitude1);
         cs.camera_position = Point(
             l * cos(latitude) * sin(longitiude),
@@ -211,19 +213,21 @@ vector<CameraSettings> main_aux07(const int num_frames, const int num_samples_pe
 
 
 void worker01() {
+    // reduce image height from 800 to 100 for faster renders / testing
     Camera c(16./9, 800);
     const Image starmap("../data/starmap.png");
     const Disk3D diskmap = read_disk3d_from_file("../data/disk3d.txt");
 
     vector<CameraSettings> all_cs, _temp;
+    // reduce num_frames and num_samples_per_pixel to 100 and 1 for faster renders / testing
     const int num_frames = 300, num_samples_per_pixel = 10;
-    _temp = main_aux01(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux02(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux03(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux04(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux05(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux06(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
-    _temp = main_aux07(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_01(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_02(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_03(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_04(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_05(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_06(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
+    _temp = clip_gen_07(num_frames, num_samples_per_pixel); all_cs.insert(all_cs.end(), _temp.begin(), _temp.end());
 
     c.render(starmap, diskmap, all_cs);
 }

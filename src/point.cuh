@@ -12,9 +12,6 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
- *
- * COMMERCIAL INQUIRIES: For licensing outside of the GPL v3,
- * please contact [anwoy.rkl@gmail.com].
  */
 
 #ifndef POINT_CUH
@@ -22,6 +19,11 @@
 
 using namespace std;
 
+/**
+ * A general 3D vector and associated operations.
+ * This can be used to represent any general 3D state
+ * such as a point in 3D space or RGB color.
+ */
 class Point {
     double x, y, z;
 

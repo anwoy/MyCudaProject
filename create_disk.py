@@ -1,12 +1,17 @@
 from perlin_numpy import generate_perlin_noise_3d
 import matplotlib.pyplot as plt
 
-def generate_tiled_noise_3d(shape=(256, 256, 256), res=(8,8,8)):
-    # shape must be a multiple of res
-    # tileable=(Z, Y, X) - set to True for the dimensions you want to repeat
+
+def generate_tiled_noise_3d(shape=(256, 256, 256), res=(8, 8, 8)):
+    '''
+    Generates a 3D tileable Perlin noise map
+    
+    :param shape: The dimensions of the output noise array. Must be multiples of `res`.
+    :param res: The number of noise periods along each axis
+    '''
     noise = generate_perlin_noise_3d(
-        shape=shape, 
-        res=res, 
+        shape=shape,
+        res=res,
         tileable=(True, True, True)
     )
 
@@ -27,6 +32,7 @@ def generate_tiled_noise_3d(shape=(256, 256, 256), res=(8,8,8)):
     slc = noise[noise.shape[0] // 2]
     plt.imshow(slc, cmap='gray')
     plt.show()
+
 
 if __name__ == '__main__':
     generate_tiled_noise_3d()
