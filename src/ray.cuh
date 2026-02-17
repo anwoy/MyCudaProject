@@ -32,7 +32,7 @@ __device__ __host__ inline Point derivative(const Point& state) {
     return Point {
         y2,
         SCHWARZSCHILD_RADIUS*3/2*y1*y1 - y1,
-        -1
+        1
     };
 }
 
@@ -47,24 +47,16 @@ __device__ __host__ inline InitialConditions initial_conditions_calc(const Point
     const Point x = normalize(direction);
     const Point z = normalize(cross(direction, origin));
     const Point y = cross(z, x);
-    const double phi_0 = acos(dot(origin, x) / origin.length());
+    const double _x = dot(x, origin), _y = dot(y, origin);
+    const double phi_0 = atan2(_y, _x);
     const double r_0 = origin.length();
     const double u_0 = 1 / r_0;
-    const double p = dot(x, direction), q = dot(y, direction), r = dot(z, direction);
-    const double c_phi_0 = cos(phi_0), s_phi_0 = sin(phi_0);
-    const double r_prime = p*c_phi_0 + q*s_phi_0;
-    const double phi_prime = u_0*(-p*s_phi_0 + q*c_phi_0);
-    const double L_0 = r_0*r_0*phi_prime;
-    const double z_0 = 1 - SCHWARZSCHILD_RADIUS / r_0;
-    const double t_prime = sqrt(fmax(0., 1 / SPEED_OF_LIGHT / SPEED_OF_LIGHT / z_0 * (
-        r_prime*r_prime / z_0 + r_0*r_0*phi_prime*phi_prime
-    )));
-    const double E_0 = SPEED_OF_LIGHT*SPEED_OF_LIGHT*z_0*t_prime;
-    const double b_0 = SPEED_OF_LIGHT * L_0 / E_0;
-    
+    const double p = dot(x, direction), q = dot(y, direction);
+    const double R = (p*_x + q*_y) / r_0;
+    const double T = (q*_x - p*_y) / r_0;
     const Point initial_state {
         u_0,
-        sqrt(fmax(0., 1 / b_0 / b_0 - u_0*u_0*z_0)),
+        -R / r_0 / T,
         phi_0
     };
     return InitialConditions(x, y, z, initial_state);
@@ -172,7 +164,7 @@ __device__ __host__ inline Point ray_trajectory(
         trajectory[i] = position.position;
 #endif
         step_size = min(max(1e-3/.2*fabs(state[2] - pi), 1e-3), 1./20);
-        const Point next_state = next_state_calc(state, step_size);
+        const Point next_state = next_state_calc(state, -step_size);
         const Position next_position = get_position(next_state, initial_conditions);
         int num_steps = 1;
         const double min_length = fmin(next_position.position.length(), position.position.length());
